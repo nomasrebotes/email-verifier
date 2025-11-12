@@ -107,6 +107,23 @@ func (v *Verifier) CheckSMTP(domain, username string) (*SMTP, error) {
 
 	if err = client.Rcpt(email); err == nil {
 		ret.Deliverable = true
+		return &ret, nil
+	}
+
+	if e := ParseSMTPError(err); e != nil {
+		switch e.Message {
+		case ErrFullInbox:
+			ret.FullInbox = true // mailbox exists but is currently full
+		case ErrNotAllowed:
+			ret.Disabled = true // account disabled / not accepting mail
+		case ErrExceededMessagingLimits, ErrTimeout, ErrBlocked:
+			// transient / policy / network-ish issues:
+			// retain current behavior: swallow the error and leave Deliverable=false
+			// (callers will see "not deliverable" without a hard failure)
+			return nil, e
+		default:
+			// for all other errors, retain the current behavior (ignore error)
+		}
 	}
 
 	return &ret, nil
