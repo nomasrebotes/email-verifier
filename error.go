@@ -71,7 +71,8 @@ func ParseSMTPError(err error) *LookupError {
 			"recipient invalid",
 			"recipient rejected",
 			"address rejected",
-			"no mailbox") {
+			"no mailbox",
+			"no mail-enabled") {
 			return newLookupError(ErrMailboxNotFound, errStr) // These errors indicate the address doesn't exist, not a server problem
 		}
 
