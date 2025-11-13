@@ -23,6 +23,7 @@ const (
 	ErrNotAllowed              = "Not Allowed"
 	ErrNeedMAILBeforeRCPT      = "Need MAIL before RCPT"
 	ErrRCPTHasMoved            = "Recipient has moved"
+	ErrMailboxNotFound         = "Mailbox not found"
 )
 
 // LookupError is an MX dns records lookup error
@@ -71,7 +72,7 @@ func ParseSMTPError(err error) *LookupError {
 			"recipient rejected",
 			"address rejected",
 			"no mailbox") {
-			return newLookupError(ErrServerUnavailable, errStr)
+			return newLookupError(ErrMailboxNotFound, errStr) // These errors indicate the address doesn't exist, not a server problem
 		}
 
 		switch status {

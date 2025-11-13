@@ -10,7 +10,7 @@ import (
 func TestParse550RCPTError(t *testing.T) {
 	err := errors.New("550 This mailbox does not exist")
 	le := ParseSMTPError(err)
-	assert.Equal(t, ErrServerUnavailable, le.Message)
+	assert.Equal(t, ErrMailboxNotFound, le.Message)
 	assert.Equal(t, err.Error(), le.Details)
 }
 
