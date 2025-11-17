@@ -41,7 +41,7 @@ func buildMetaDataFile() {
 			description: "// map to store disposable domains data",
 		},
 		fileInfo{
-			path:        "free.txt",
+			path:        "free_valid_mx.txt",
 			varName:     "freeDomains",
 			srcPath:     "../../metadata_free.go",
 			description: "// map to store free domains data",
@@ -139,5 +139,6 @@ func updateMetaData() {
 
 func main() {
 	updateMetaData()
+	filterFreeDomainsWithValidMX()
 	buildMetaDataFile()
 }

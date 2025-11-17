@@ -81,14 +81,16 @@ func (v *Verifier) CheckSMTP(domain, username string) (*SMTP, error) {
 					ret.FullInbox = true
 				case ErrNotAllowed:
 					ret.Disabled = true
-				// If The client typically receives a `550 5.1.1` code as a reply to RCPT TO command,
-				// In most cases, this is because the recipient address does not exist.
+					ret.CatchAll = false
 				case ErrServerUnavailable:
 					ret.CatchAll = false
+				// If The client typically receives a `550 5.1.1` code as a reply to RCPT TO command,
+				// In most cases, this is because the recipient address does not exist.
+				case ErrMailboxNotFound:
+					ret.CatchAll = false
 				default:
-
+					ret.CatchAll = false
 				}
-
 			}
 		}
 
@@ -107,6 +109,23 @@ func (v *Verifier) CheckSMTP(domain, username string) (*SMTP, error) {
 
 	if err = client.Rcpt(email); err == nil {
 		ret.Deliverable = true
+		return &ret, nil
+	}
+
+	if e := ParseSMTPError(err); e != nil {
+		switch e.Message {
+		case ErrFullInbox:
+			ret.FullInbox = true // mailbox exists but is currently full
+		case ErrNotAllowed:
+			ret.Disabled = true // account disabled / not accepting mail
+		case ErrExceededMessagingLimits, ErrTimeout, ErrBlocked, ErrMailboxBusy, ErrServerUnavailable:
+			// these errors indicate server problems that should be surfaced to the caller
+			return nil, e
+		case ErrMailboxNotFound:
+			// ret.Deliverable stays as false
+		default: // including nil
+			// for all other errors, retain the current behavior (ignore error)
+		}
 	}
 
 	return &ret, nil
