@@ -1,7 +1,11 @@
 package emailverifier
 
 import (
+	"errors"
+	"net"
+	"net/smtp"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -196,7 +200,7 @@ func TestCheckSMTPOK_HostNotExists(t *testing.T) {
 func TestNewSMTPClientOK(t *testing.T) {
 	domain := "gmail.com"
 	timeout := 5 * time.Second
-	ret, _, err := newSMTPClient(domain, "", timeout, timeout)
+	ret, _, err := newSMTPClientWithStrategy(domain, "", timeout, timeout, MXStrategyFirstConnected)
 	assert.NotNil(t, ret)
 	assert.Nil(t, err)
 }
@@ -205,7 +209,7 @@ func TestNewSMTPClientFailed_WithInvalidProxy(t *testing.T) {
 	domain := "gmail.com"
 	proxyURI := "socks5://user:password@127.0.0.1:1080?timeout=5s"
 	timeout := 5 * time.Second
-	ret, _, err := newSMTPClient(domain, proxyURI, timeout, timeout)
+	ret, _, err := newSMTPClientWithStrategy(domain, proxyURI, timeout, timeout, MXStrategyFirstConnected)
 	assert.Nil(t, ret)
 	assert.Error(t, err, syscall.ECONNREFUSED)
 }
@@ -213,7 +217,7 @@ func TestNewSMTPClientFailed_WithInvalidProxy(t *testing.T) {
 func TestNewSMTPClientFailed(t *testing.T) {
 	domain := "zzzz171777.com"
 	timeout := 5 * time.Second
-	ret, _, err := newSMTPClient(domain, "", timeout, timeout)
+	ret, _, err := newSMTPClientWithStrategy(domain, "", timeout, timeout, MXStrategyFirstConnected)
 	assert.Nil(t, ret)
 	assert.Error(t, err)
 }
@@ -234,4 +238,138 @@ func TestDialSMTPFailed_NoSuchHost(t *testing.T) {
 	assert.Nil(t, ret)
 	assert.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "no such host"))
+}
+
+func TestNewSMTPClientPriority_UsesLowestPreferenceWhenAvailable(t *testing.T) {
+	originalDialSMTP := dialSMTPFunc
+	defer func() {
+		dialSMTPFunc = originalDialSMTP
+	}()
+
+	mxRecords := []*net.MX{
+		{Host: "primary.example.com.", Pref: 0},
+		{Host: "backup.example.com.", Pref: 10},
+	}
+
+	dialSMTPFunc = func(addr, proxyURI string, connectTimeout, operationTimeout time.Duration) (*smtp.Client, error) {
+		if strings.Contains(addr, "backup.example.com.") {
+			t.Fatalf("should not dial lower-priority MX: %s", addr)
+		}
+		return &smtp.Client{}, nil
+	}
+
+	client, mx, err := newSMTPClientPriority(mxRecords, "", 1*time.Second, 1*time.Second)
+	assert.NoError(t, err)
+	if assert.NotNil(t, client) && assert.NotNil(t, mx) {
+		assert.Equal(t, "primary.example.com.", mx.Host)
+	}
+}
+
+func TestNewSMTPClientPriority_FallsBackToHigherPreferenceOnFailure(t *testing.T) {
+	originalDialSMTP := dialSMTPFunc
+	defer func() {
+		dialSMTPFunc = originalDialSMTP
+	}()
+
+	mxRecords := []*net.MX{
+		{Host: "primary.example.com.", Pref: 0},
+		{Host: "backup.example.com.", Pref: 10},
+	}
+
+	dialSMTPFunc = func(addr, proxyURI string, connectTimeout, operationTimeout time.Duration) (*smtp.Client, error) {
+		switch {
+		case strings.Contains(addr, "primary.example.com."):
+			return nil, errors.New("primary MX failure")
+		case strings.Contains(addr, "backup.example.com."):
+			return &smtp.Client{}, nil
+		default:
+			return nil, errors.New("unexpected host")
+		}
+	}
+
+	client, mx, err := newSMTPClientPriority(mxRecords, "", 1*time.Second, 1*time.Second)
+	assert.NoError(t, err)
+	if assert.NotNil(t, client) && assert.NotNil(t, mx) {
+		assert.Equal(t, "backup.example.com.", mx.Host)
+	}
+}
+
+func TestNewSMTPClientPriority_SamePreferenceGroupBeforeHigherPreference(t *testing.T) {
+	originalDialSMTP := dialSMTPFunc
+	defer func() {
+		dialSMTPFunc = originalDialSMTP
+	}()
+
+	mxRecords := []*net.MX{
+		{Host: "host1.example.com.", Pref: 0},
+		{Host: "host2.example.com.", Pref: 0},
+		{Host: "host3.example.com.", Pref: 10},
+	}
+
+	var mu sync.Mutex
+	host1Called := false
+	host2Called := false
+
+	dialSMTPFunc = func(addr, proxyURI string, connectTimeout, operationTimeout time.Duration) (*smtp.Client, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case strings.Contains(addr, "host1.example.com."):
+			host1Called = true
+			return nil, errors.New("host1 failure")
+		case strings.Contains(addr, "host2.example.com."):
+			host2Called = true
+			return nil, errors.New("host2 failure")
+		case strings.Contains(addr, "host3.example.com."):
+			if !(host1Called && host2Called) {
+				t.Fatalf("higher-preference MX dialed before all equal-preference hosts")
+			}
+			return &smtp.Client{}, nil
+		default:
+			return nil, errors.New("unexpected host")
+		}
+	}
+
+	client, mx, err := newSMTPClientPriority(mxRecords, "", 1*time.Second, 1*time.Second)
+	assert.NoError(t, err)
+	if assert.NotNil(t, client) && assert.NotNil(t, mx) {
+		assert.Equal(t, "host3.example.com.", mx.Host)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.True(t, host1Called, "host1 (pref 0) should be dialed before fallback")
+	assert.True(t, host2Called, "host2 (pref 0) should be dialed before fallback")
+}
+
+func TestNewSMTPClientWithStrategy_Priority_RespectsMXPreference(t *testing.T) {
+	originalLookupMX := lookupMX
+	originalDialSMTP := dialSMTPFunc
+	defer func() {
+		lookupMX = originalLookupMX
+		dialSMTPFunc = originalDialSMTP
+	}()
+
+	lookupMX = func(domain string) ([]*net.MX, error) {
+		if domain != "example.com" {
+			t.Fatalf("unexpected domain: %s", domain)
+		}
+		return []*net.MX{
+			{Host: "primary.example.com.", Pref: 0},
+			{Host: "backup.example.com.", Pref: 10},
+		}, nil
+	}
+
+	dialSMTPFunc = func(addr, proxyURI string, connectTimeout, operationTimeout time.Duration) (*smtp.Client, error) {
+		if strings.Contains(addr, "backup.example.com.") {
+			t.Fatalf("should not dial lower-priority MX when primary is available: %s", addr)
+		}
+		return &smtp.Client{}, nil
+	}
+
+	client, mx, err := newSMTPClientWithStrategy("example.com", "", 1*time.Second, 1*time.Second, MXStrategyPriority)
+	assert.NoError(t, err)
+	if assert.NotNil(t, client) && assert.NotNil(t, mx) {
+		assert.Equal(t, "primary.example.com.", mx.Host)
+	}
 }
