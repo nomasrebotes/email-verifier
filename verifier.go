@@ -21,7 +21,23 @@ type Verifier struct {
 	// Timeouts
 	connectTimeout   time.Duration // Timeout for establishing connections
 	operationTimeout time.Duration // Timeout for SMTP operations (e.g., EHLO, MAIL FROM, etc.)
+
+	mxStrategy MXStrategy // strategy used to select MX hosts during SMTP checks
 }
+
+// MXStrategy controls how MX records are selected when establishing SMTP
+// connections.
+type MXStrategy int
+
+const (
+	// MXStrategyFirstConnected dials all MX hosts concurrently and uses the
+	// first one that accepts a connection, ignoring MX preference.
+	MXStrategyFirstConnected MXStrategy = iota
+
+	// MXStrategyPriority respects MX preference by dialing hosts in order of
+	// increasing preference and only falling back when a priority group fails.
+	MXStrategyPriority
+)
 
 // Result is the result of Email Verification
 type Result struct {
@@ -56,6 +72,7 @@ func NewVerifier() *Verifier {
 		apiVerifiers:         map[string]smtpAPIVerifier{},
 		connectTimeout:       10 * time.Second,
 		operationTimeout:     10 * time.Second,
+		mxStrategy:           MXStrategyFirstConnected,
 	}
 }
 
@@ -236,6 +253,13 @@ func (v *Verifier) ConnectTimeout(timeout time.Duration) *Verifier {
 // OperationTimeout sets the timeout for SMTP operations (e.g., EHLO, MAIL FROM, etc.).
 func (v *Verifier) OperationTimeout(timeout time.Duration) *Verifier {
 	v.operationTimeout = timeout
+	return v
+}
+
+// WithMXStrategy sets the strategy used to select MX hosts when establishing
+// SMTP connections (e.g., first-connected or priority-based).
+func (v *Verifier) WithMXStrategy(strategy MXStrategy) *Verifier {
+	v.mxStrategy = strategy
 	return v
 }
 

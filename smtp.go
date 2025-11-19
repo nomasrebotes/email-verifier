@@ -15,6 +15,10 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+var lookupMX = net.LookupMX
+
+var dialSMTPFunc = dialSMTP
+
 // SMTP stores all information for SMTP verification lookup
 type SMTP struct {
 	HostExists  bool `json:"host_exists"` // is the host exists?
@@ -39,7 +43,7 @@ func (v *Verifier) CheckSMTP(domain, username string) (*SMTP, error) {
 	email := fmt.Sprintf("%s@%s", username, domain)
 
 	// Dial any SMTP server that will accept a connection
-	client, mx, err := newSMTPClient(domain, v.proxyURI, v.connectTimeout, v.operationTimeout)
+	client, mx, err := newSMTPClientWithStrategy(domain, v.proxyURI, v.connectTimeout, v.operationTimeout, v.mxStrategy)
 	if err != nil {
 		return &ret, ParseSMTPError(err)
 	}
@@ -131,10 +135,11 @@ func (v *Verifier) CheckSMTP(domain, username string) (*SMTP, error) {
 	return &ret, nil
 }
 
-// newSMTPClient generates a new available SMTP client
-func newSMTPClient(domain, proxyURI string, connectTimeout, operationTimeout time.Duration) (*smtp.Client, *net.MX, error) {
+// newSMTPClientWithStrategy generates a new available SMTP client according to
+// the provided MX strategy.
+func newSMTPClientWithStrategy(domain, proxyURI string, connectTimeout, operationTimeout time.Duration, strategy MXStrategy) (*smtp.Client, *net.MX, error) {
 	domain = domainToASCII(domain)
-	mxRecords, err := net.LookupMX(domain)
+	mxRecords, err := lookupMX(domain)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,6 +147,21 @@ func newSMTPClient(domain, proxyURI string, connectTimeout, operationTimeout tim
 	if len(mxRecords) == 0 {
 		return nil, nil, errors.New("No MX records found")
 	}
+
+	switch strategy {
+	case MXStrategyPriority:
+		return newSMTPClientPriority(mxRecords, proxyURI, connectTimeout, operationTimeout)
+	case MXStrategyFirstConnected:
+		fallthrough
+	default:
+		return newSMTPClientFirstConnected(mxRecords, proxyURI, connectTimeout, operationTimeout)
+	}
+}
+
+// newSMTPClientFirstConnected implements the behaviour: attempt to
+// connect to all SMTP hosts concurrently and return the first successful
+// connection, ignoring MX priority.
+func newSMTPClientFirstConnected(mxRecords []*net.MX, proxyURI string, connectTimeout, operationTimeout time.Duration) (*smtp.Client, *net.MX, error) {
 	// Create a channel for receiving response from
 	ch := make(chan interface{}, 1)
 	selectedMXCh := make(chan *net.MX, 1)
@@ -152,12 +172,12 @@ func newSMTPClient(domain, proxyURI string, connectTimeout, operationTimeout tim
 	// mutex for data race
 	var mutex sync.Mutex
 
-	// Attempt to connect to all SMTP servers concurrently
+	// Attempt to connect to all SMTP hosts concurrently
 	for i, r := range mxRecords {
 		addr := r.Host + smtpPort
 		index := i
 		go func() {
-			c, err := dialSMTP(addr, proxyURI, connectTimeout, operationTimeout)
+			c, err := dialSMTPFunc(addr, proxyURI, connectTimeout, operationTimeout)
 			if err != nil {
 				if !done {
 					ch <- err
@@ -195,7 +215,36 @@ func newSMTPClient(domain, proxyURI string, connectTimeout, operationTimeout tim
 			return nil, nil, errors.New("Unexpected response dialing SMTP server")
 		}
 	}
+}
 
+// newSMTPClientPriority respects MX priority. It groups MX records by
+// preference (lowest value first). Within each group, it dials all hosts
+// concurrently and returns the first successful connection. It only falls back
+// to the next priority group if all hosts in the current group fail.
+func newSMTPClientPriority(mxRecords []*net.MX, proxyURI string, connectTimeout, operationTimeout time.Duration) (*smtp.Client, *net.MX, error) {
+	var allErrs []error
+
+	for i := 0; i < len(mxRecords); {
+		currentPref := mxRecords[i].Pref
+		start := i
+		for i < len(mxRecords) && mxRecords[i].Pref == currentPref {
+			i++
+		}
+
+		group := mxRecords[start:i]
+		client, mx, err := newSMTPClientFirstConnected(group, proxyURI, connectTimeout, operationTimeout)
+		if err == nil && client != nil {
+			return client, mx, nil
+		}
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+	}
+
+	if len(allErrs) > 0 {
+		return nil, nil, allErrs[0]
+	}
+	return nil, nil, errors.New("failed to connect to any MX server")
 }
 
 // dialSMTP is a timeout wrapper for smtp.Dial. It attempts to dial an
