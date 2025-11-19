@@ -59,8 +59,35 @@ func ParseSMTPError(err error) *LookupError {
 
 	// If the status code is above 400 there was an error and we should return it
 	if status > 400 {
-		// Don't return an error if the error contains anything about the address
-		// being undeliverable
+		if status < 500 {
+			if insContains(errStr,
+				"greylist",
+				"greylisted") {
+				return newLookupError(ErrTryAgainLater, errStr)
+			}
+
+			switch status {
+			case 421:
+				return newLookupError(ErrTryAgainLater, errStr)
+			case 450:
+				return newLookupError(ErrMailboxBusy, errStr)
+			case 451:
+				return newLookupError(ErrExceededMessagingLimits, errStr)
+			case 452:
+				if insContains(errStr,
+					"full",
+					"space",
+					"over quota",
+					"insufficient",
+				) {
+					return newLookupError(ErrFullInbox, errStr)
+				}
+				return newLookupError(ErrTooManyRCPT, errStr)
+			default:
+				return parseBasicErr(err)
+			}
+		}
+
 		if insContains(errStr,
 			"undeliverable",
 			"does not exist",
@@ -77,22 +104,6 @@ func ParseSMTPError(err error) *LookupError {
 		}
 
 		switch status {
-		case 421:
-			return newLookupError(ErrTryAgainLater, errStr)
-		case 450:
-			return newLookupError(ErrMailboxBusy, errStr)
-		case 451:
-			return newLookupError(ErrExceededMessagingLimits, errStr)
-		case 452:
-			if insContains(errStr,
-				"full",
-				"space",
-				"over quota",
-				"insufficient",
-			) {
-				return newLookupError(ErrFullInbox, errStr)
-			}
-			return newLookupError(ErrTooManyRCPT, errStr)
 		case 503:
 			return newLookupError(ErrNeedMAILBeforeRCPT, errStr)
 		case 550: // 550 is Mailbox Unavailable - usually undeliverable, ref: https://blog.mailtrap.io/550-5-1-1-rejected-fix/
