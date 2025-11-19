@@ -1,5 +1,13 @@
 ## [Change log](https://github.com/AfterShip/email-verifier/releases)
 
+
+v1.5.0
+----------
+* Feature: Support configurable MX selection strategy and priority-respecting dialer
+* Exclude domains without a valid MX record from metadata_free.go
+* Handle errors returned from Rcpt
+* Refresh metadata
+
 v1.4.0
 ----------
 * Feature: Support Gmail&Yahoo SMTP check by API [#76](https://github.com/AfterShip/email-verifier/pull/88)
