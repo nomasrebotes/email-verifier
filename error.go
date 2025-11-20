@@ -118,7 +118,7 @@ func ParseSMTPError(err error) *LookupError {
 				"denied") {
 				return newLookupError(ErrBlocked, errStr)
 			}
-			return newLookupError(ErrServerUnavailable, errStr)
+			return newLookupError(ErrMailboxNotFound, errStr)
 		case 551:
 			return newLookupError(ErrRCPTHasMoved, errStr)
 		case 552:

@@ -56,7 +56,7 @@ func TestParseError_Code550(t *testing.T) {
 	err := errors.New(errStr)
 	le := ParseSMTPError(err)
 
-	assert.Equal(t, ErrServerUnavailable, le.Message)
+	assert.Equal(t, ErrMailboxNotFound, le.Message)
 	assert.Equal(t, err.Error(), le.Details)
 }
 
@@ -272,4 +272,13 @@ func TestParseError_555Default(t *testing.T) {
 	le := ParseSMTPError(err)
 
 	assert.Equal(t, &LookupError{Details: errStr, Message: errStr}, le)
+}
+
+func TestParseError_550_RequestedActionNotTaken(t *testing.T) {
+	errStr := "550 Requested action not taken: mailbox unavailable\nFor explanation visit <snip>"
+	err := errors.New(errStr)
+	le := ParseSMTPError(err)
+
+	assert.Equal(t, ErrMailboxNotFound, le.Message)
+	assert.Equal(t, err.Error(), le.Details)
 }
