@@ -125,6 +125,8 @@ func (v *Verifier) CheckSMTP(domain, username string) (*SMTP, error) {
 		case ErrExceededMessagingLimits, ErrTimeout, ErrBlocked, ErrMailboxBusy, ErrServerUnavailable, ErrTryAgainLater:
 			// these errors indicate server problems that should be surfaced to the caller
 			return nil, e
+		case ErrNoRelay: // server doesn't recognise email domain, so complains about relay access (account does not exist)
+			// ret.Deliverable stays as false
 		case ErrMailboxNotFound:
 			// ret.Deliverable stays as false
 		default: // including nil
