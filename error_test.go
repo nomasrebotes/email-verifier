@@ -157,6 +157,15 @@ func TestParseError_Code554(t *testing.T) {
 	assert.Equal(t, err.Error(), le.Details)
 }
 
+func TestParseError_Code554_relayDenied(t *testing.T) {
+	errStr := "554 5.7.1 <email@example.com>: Relay access denied"
+	err := errors.New(errStr)
+	le := ParseSMTPError(err)
+
+	assert.Equal(t, ErrNoRelay, le.Message)
+	assert.Equal(t, err.Error(), le.Details)
+}
+
 func TestParseError_basicErr_timeout(t *testing.T) {
 	errStr := "559 timeout"
 	err := errors.New(errStr)

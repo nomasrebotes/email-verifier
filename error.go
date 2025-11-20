@@ -126,6 +126,9 @@ func ParseSMTPError(err error) *LookupError {
 		case 553:
 			return newLookupError(ErrNoRelay, errStr)
 		case 554:
+			if insContains(errStr, "relay access denied") {
+				return newLookupError(ErrNoRelay, errStr)
+			}
 			return newLookupError(ErrNotAllowed, errStr)
 		default:
 			return parseBasicErr(err)
