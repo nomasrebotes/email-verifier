@@ -153,7 +153,9 @@ func parseBasicErr(err error) *LookupError {
 		return newLookupError(ErrTimeout, errStr)
 	case insContains(errStr, "no such host"):
 		return newLookupError(ErrNoSuchHost, errStr)
-	case insContains(errStr, "unavailable"):
+	case insContains(errStr,
+		"unavailable",
+		"connection reset"):
 		return newLookupError(ErrServerUnavailable, errStr)
 	default:
 		return newLookupError(errStr, errStr)

@@ -252,6 +252,18 @@ func TestParseError_basicErr_unavailable(t *testing.T) {
 	assert.Equal(t, err.Error(), le.Details)
 }
 
+// Sometimes a server will disconnect immediately after RCPT, without an SMTP response code.
+// This can be a greylist or temporary rejection, so we classify it as server unavailable.
+// A passive-aggressive response from the server indicates a temporary issue and should be retried.
+func TestParseError_basicErr_connectionReset(t *testing.T) {
+	errStr := "read tcp 1.2.3.4:5555->6.7.8.9:25: read: connection reset by peer"
+	err := errors.New(errStr)
+	le := ParseSMTPError(err)
+
+	assert.Equal(t, ErrServerUnavailable, le.Message)
+	assert.Equal(t, err.Error(), le.Details)
+}
+
 // A non-standard 499 status is treated as a 4xx temporary failure; since the
 // message contains "timeout", the fallback parseBasicErr maps it to ErrTimeout.
 func TestParseError_499Timeout(t *testing.T) {
