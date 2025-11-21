@@ -2,6 +2,7 @@ package emailverifier
 
 import (
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -267,6 +268,17 @@ func TestParseError_basicErr_unavailable(t *testing.T) {
 func TestParseError_basicErr_connectionReset(t *testing.T) {
 	errStr := "read tcp 1.2.3.4:5555->6.7.8.9:25: read: connection reset by peer"
 	err := errors.New(errStr)
+	le := ParseSMTPError(err)
+
+	assert.Equal(t, ErrServerUnavailable, le.Message)
+	assert.Equal(t, err.Error(), le.Details)
+}
+
+// Sometimes a server with disconnect immediately after accepting the
+// connection. This is greylisting in action - a temporary rejection that
+// should be retried (ErrServerUnavailable)
+func TestParseError_basicErr_connectionEOF(t *testing.T) {
+	err := io.EOF
 	le := ParseSMTPError(err)
 
 	assert.Equal(t, ErrServerUnavailable, le.Message)

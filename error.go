@@ -1,7 +1,9 @@
 package emailverifier
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -144,6 +146,8 @@ func parseBasicErr(err error) *LookupError {
 
 	// Return a more understandable error
 	switch {
+	case errors.Is(err, io.EOF):
+		return newLookupError(ErrServerUnavailable, errStr)
 	case insContains(errStr,
 		"spamhaus",
 		"proofpoint",
