@@ -1,7 +1,9 @@
 package emailverifier
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -57,23 +59,10 @@ func ParseSMTPError(err error) *LookupError {
 		return parseBasicErr(err)
 	}
 
-	// If the status code is above 400 there was an error and we should return it
-	if status > 400 {
-		// Don't return an error if the error contains anything about the address
-		// being undeliverable
-		if insContains(errStr,
-			"undeliverable",
-			"does not exist",
-			"may not exist",
-			"user unknown",
-			"user not found",
-			"invalid address",
-			"recipient invalid",
-			"recipient rejected",
-			"address rejected",
-			"no mailbox",
-			"no mail-enabled") {
-			return newLookupError(ErrMailboxNotFound, errStr) // These errors indicate the address doesn't exist, not a server problem
+	// status code is 4xx - generally soft bounces or greylist responses
+	if status >= 400 && status < 500 {
+		if insContains(errStr, "greylist") {
+			return newLookupError(ErrTryAgainLater, errStr)
 		}
 
 		switch status {
@@ -93,6 +82,29 @@ func ParseSMTPError(err error) *LookupError {
 				return newLookupError(ErrFullInbox, errStr)
 			}
 			return newLookupError(ErrTooManyRCPT, errStr)
+		default:
+			return parseBasicErr(err)
+		}
+	}
+
+	// status code is 5xx - generally hard bounces or the server is blocking us
+	if status >= 500 {
+		if insContains(errStr,
+			"undeliverable",
+			"does not exist",
+			"may not exist",
+			"user unknown",
+			"user not found",
+			"invalid address",
+			"recipient invalid",
+			"recipient rejected",
+			"address rejected",
+			"no mailbox",
+			"no mail-enabled") {
+			return newLookupError(ErrMailboxNotFound, errStr) // These errors indicate the address doesn't exist, not a server problem
+		}
+
+		switch status {
 		case 503:
 			return newLookupError(ErrNeedMAILBeforeRCPT, errStr)
 		case 550: // 550 is Mailbox Unavailable - usually undeliverable, ref: https://blog.mailtrap.io/550-5-1-1-rejected-fix/
@@ -107,7 +119,7 @@ func ParseSMTPError(err error) *LookupError {
 				"denied") {
 				return newLookupError(ErrBlocked, errStr)
 			}
-			return newLookupError(ErrServerUnavailable, errStr)
+			return newLookupError(ErrMailboxNotFound, errStr)
 		case 551:
 			return newLookupError(ErrRCPTHasMoved, errStr)
 		case 552:
@@ -115,11 +127,16 @@ func ParseSMTPError(err error) *LookupError {
 		case 553:
 			return newLookupError(ErrNoRelay, errStr)
 		case 554:
+			if insContains(errStr, "relay access denied") {
+				return newLookupError(ErrNoRelay, errStr)
+			}
 			return newLookupError(ErrNotAllowed, errStr)
 		default:
 			return parseBasicErr(err)
 		}
 	}
+
+	// status code is 2xx or 3xx - this is a successful response
 	return nil
 }
 
@@ -130,6 +147,8 @@ func parseBasicErr(err error) *LookupError {
 
 	// Return a more understandable error
 	switch {
+	case errors.Is(err, io.EOF):
+		return newLookupError(ErrServerUnavailable, errStr)
 	case insContains(errStr,
 		"spamhaus",
 		"proofpoint",
@@ -142,7 +161,9 @@ func parseBasicErr(err error) *LookupError {
 		return newLookupError(ErrTimeout, errStr)
 	case insContains(errStr, "no such host"):
 		return newLookupError(ErrNoSuchHost, errStr)
-	case insContains(errStr, "unavailable"):
+	case insContains(errStr,
+		"unavailable",
+		"connection reset"):
 		return newLookupError(ErrServerUnavailable, errStr)
 	default:
 		return newLookupError(errStr, errStr)
