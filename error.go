@@ -62,9 +62,7 @@ func ParseSMTPError(err error) *LookupError {
 	// If the status code is above 400 there was an error and we should return it
 	if status > 400 {
 		if status < 500 {
-			if insContains(errStr,
-				"greylist",
-				"greylisted") {
+			if insContains(errStr, "greylist") {
 				return newLookupError(ErrTryAgainLater, errStr)
 			}
 
