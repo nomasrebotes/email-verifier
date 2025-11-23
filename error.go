@@ -59,35 +59,36 @@ func ParseSMTPError(err error) *LookupError {
 		return parseBasicErr(err)
 	}
 
-	// If the status code is above 400 there was an error and we should return it
-	if status > 400 {
-		if status < 500 {
-			if insContains(errStr, "greylist") {
-				return newLookupError(ErrTryAgainLater, errStr)
-			}
-
-			switch status {
-			case 421:
-				return newLookupError(ErrTryAgainLater, errStr)
-			case 450:
-				return newLookupError(ErrMailboxBusy, errStr)
-			case 451:
-				return newLookupError(ErrExceededMessagingLimits, errStr)
-			case 452:
-				if insContains(errStr,
-					"full",
-					"space",
-					"over quota",
-					"insufficient",
-				) {
-					return newLookupError(ErrFullInbox, errStr)
-				}
-				return newLookupError(ErrTooManyRCPT, errStr)
-			default:
-				return parseBasicErr(err)
-			}
+	// status code is 4xx - generally soft bounces or greylist responses
+	if status >= 400 && status < 500 {
+		if insContains(errStr, "greylist") {
+			return newLookupError(ErrTryAgainLater, errStr)
 		}
 
+		switch status {
+		case 421:
+			return newLookupError(ErrTryAgainLater, errStr)
+		case 450:
+			return newLookupError(ErrMailboxBusy, errStr)
+		case 451:
+			return newLookupError(ErrExceededMessagingLimits, errStr)
+		case 452:
+			if insContains(errStr,
+				"full",
+				"space",
+				"over quota",
+				"insufficient",
+			) {
+				return newLookupError(ErrFullInbox, errStr)
+			}
+			return newLookupError(ErrTooManyRCPT, errStr)
+		default:
+			return parseBasicErr(err)
+		}
+	}
+
+	// status code is 5xx - generally hard bounces or the server is blocking us
+	if status >= 500 {
 		if insContains(errStr,
 			"undeliverable",
 			"does not exist",
@@ -134,6 +135,8 @@ func ParseSMTPError(err error) *LookupError {
 			return parseBasicErr(err)
 		}
 	}
+
+	// status code is 2xx or 3xx - this is a successful response
 	return nil
 }
 
