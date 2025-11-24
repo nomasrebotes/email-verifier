@@ -315,3 +315,13 @@ func TestParseError_550_RequestedActionNotTaken(t *testing.T) {
 	assert.Equal(t, ErrMailboxNotFound, le.Message)
 	assert.Equal(t, err.Error(), le.Details)
 }
+
+// 550 with TLS version mismatch. In this example, the server requests a specific TLS version that's not available.
+func TestParseError_550_TLSVersion(t *testing.T) {
+	errStr := "550 5.7.4 XGEMAIL_0006 Command rejected : The rejection of the message occurred due to a mismatch in TLS versions between the configured TLS version is Preferred TLS 1.3 for the recipient: user@example.com and the sender: verifier.com TLS version is not available"
+	err := errors.New(errStr)
+	le := ParseSMTPError(err)
+
+	assert.Equal(t, ErrTLSVersion, le.Message)
+	assert.Equal(t, err.Error(), le.Details)
+}

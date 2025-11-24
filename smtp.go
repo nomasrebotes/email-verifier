@@ -122,7 +122,7 @@ func (v *Verifier) CheckSMTP(domain, username string) (*SMTP, error) {
 			ret.FullInbox = true // mailbox exists but is currently full
 		case ErrNotAllowed:
 			ret.Disabled = true // account disabled / not accepting mail
-		case ErrExceededMessagingLimits, ErrTimeout, ErrBlocked, ErrMailboxBusy, ErrServerUnavailable, ErrTryAgainLater:
+		case ErrExceededMessagingLimits, ErrTimeout, ErrBlocked, ErrMailboxBusy, ErrServerUnavailable, ErrTryAgainLater, ErrTLSVersion:
 			// these errors indicate server problems that should be surfaced to the caller
 			return nil, e
 		case ErrNoRelay: // server doesn't recognise email domain, so complains about relay access (account does not exist)

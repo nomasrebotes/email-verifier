@@ -26,6 +26,7 @@ const (
 	ErrNeedMAILBeforeRCPT      = "Need MAIL before RCPT"
 	ErrRCPTHasMoved            = "Recipient has moved"
 	ErrMailboxNotFound         = "Mailbox not found"
+	ErrTLSVersion              = "TLS version not supported"
 )
 
 // LookupError is an MX dns records lookup error
@@ -118,6 +119,9 @@ func ParseSMTPError(err error) *LookupError {
 				"block list",
 				"denied") {
 				return newLookupError(ErrBlocked, errStr)
+			}
+			if insContains(errStr, "tls version") {
+				return newLookupError(ErrTLSVersion, errStr)
 			}
 			return newLookupError(ErrMailboxNotFound, errStr)
 		case 551:
