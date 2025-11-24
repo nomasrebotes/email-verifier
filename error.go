@@ -167,7 +167,11 @@ func parseBasicErr(err error) *LookupError {
 		return newLookupError(ErrNoSuchHost, errStr)
 	case insContains(errStr,
 		"unavailable",
-		"connection reset"):
+		"connection reset",
+		"use of closed network connection",
+		"connection aborted",
+		"broken pipe",
+		"connection forcibly closed"):
 		return newLookupError(ErrServerUnavailable, errStr)
 	default:
 		return newLookupError(errStr, errStr)
